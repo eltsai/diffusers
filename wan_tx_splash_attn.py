@@ -1,3 +1,12 @@
+# import os
+# os.environ["LIBTPU_INIT_ARGS"] = os.environ.get("LIBTPU_INIT_ARGS", "")
+
+# os.environ["LIBTPU_INIT_ARGS"] += " --xla_tpu_enable_sparse_core_collective_offload_all_gather=true"
+# os.environ["LIBTPU_INIT_ARGS"] += " --xla_tpu_enable_sparse_core_collective_offload_2d_all_gather=true"
+# os.environ["LIBTPU_INIT_ARGS"] += " --xla_tpu_enable_async_collective_fusion_fuse_all_gather=false"
+
+# os.environ["LIBTPU_INIT_ARGS"] += " --xla_tpu_enable_async_all_to_all=true"
+
 import functools
 import re
 import math

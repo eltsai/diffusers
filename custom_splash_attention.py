@@ -703,7 +703,8 @@ def _tpu_splash_attention(query, key, value, mesh):
 
     def _attention_on_slices(q, k, v):
         scale_factor = 1.0 / math.sqrt(q.shape[-1])
-        q = q * scale_factor
+        _LOG2_E = 1.44269504
+        q = q * scale_factor * _LOG2_E
 
         def pad_to_multiple(x, multiple, axis):
             seq_len = x.shape[axis]
