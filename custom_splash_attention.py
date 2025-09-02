@@ -679,6 +679,11 @@ def __splash_attention_forward(
       out_shape=out_shapes,
       interpret=interpret,
       # debug=True,
+      cost_estimate=pl.CostEstimate(
+         flops=2*num_q_heads*q_seq_len*kv_seq_len*head_dim_qk + 2*num_q_heads*q_seq_len*kv_seq_len*head_dim_v,
+         bytes_accessed=2*num_q_heads*q_seq_len*head_dim_qk + 4*num_kv_heads*kv_seq_len*head_dim_v + 2*num_q_heads*q_seq_len*head_dim_v,
+         transcendentals=num_q_heads*q_seq_len*kv_seq_len,
+      ),
   )(q, k, v)
   return all_out[-1]
 

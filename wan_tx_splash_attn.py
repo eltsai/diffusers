@@ -467,7 +467,7 @@ def _tpu_custom_attention(query, key, value, env, scale=None, is_causal=False, w
             num_heads_on_device = q_3d.shape[0]
 
             # self attention
-            if k_3d.shape[1] > 10000 or True:
+            if k_3d.shape[1] > 10000:
               # Pad q, k, v to next multiple of BQSIZE/BKVSIZE
               q_3d_padded, q_orig_len = pad_to_multiple(q_3d, BQSIZE, axis=1)
               k_3d_padded, k_orig_len = pad_to_multiple(k_3d, BKVSIZE, axis=1)
@@ -489,7 +489,8 @@ def _tpu_custom_attention(query, key, value, env, scale=None, is_causal=False, w
             splash_kernel = custom_splash_attention.make_splash_mha(
                 block_sizes=block_sizes, bkv_compute_in=BKVCOMPUTEINSIZE
             )
-            out = splash_kernel(q_3d_padded.astype(jnp.float32), k_3d_padded.astype(jnp.float32), v_3d_padded.astype(jnp.float32)).astype(q_3d_padded.dtype)
+            # out = splash_kernel(q_3d_padded.astype(jnp.float32), k_3d_padded.astype(jnp.float32), v_3d_padded.astype(jnp.float32)).astype(q_3d_padded.dtype)
+            out = splash_kernel(q_3d_padded, k_3d_padded, v_3d_padded)
             # Remove padding if any
             out = jnp.swapaxes(out, 1, 2)
             return out[:, :q_orig_len, ...]
@@ -507,13 +508,13 @@ def _tpu_custom_attention(query, key, value, env, scale=None, is_causal=False, w
         # Sharded case for Transformer. Split along the heads axis.
         # Attn1 self attention, key length is long.
         # if key.shape[2] > 10000 and False:
-        if key.shape[2] > 10000 or True:
+        if key.shape[2] > 10000:
           q_partition_spec = P('dp', 'axis', 'sp', None)
           kv_partition_spec = P('dp', 'axis', None, None)
         else:
           # Attn2 which is cross attention, kv sequence is shorter. All gather the key value cost less.
           q_partition_spec = P('dp', None, ('axis', 'sp'), None)
-          kv_partition_spec = P('dp', None, ('axis', 'sp'), None)
+          kv_partition_spec = P('dp', None, None, None)
 
     # ALWAYS use shard_map. The partition_spec will control the behavior.
     sharded_fn = shard_map(
@@ -558,8 +559,7 @@ def scaled_dot_product_attention(
       # jkey_smoothed
       jkey = jkey - key_mean
     # <--- MODIFIED: Pass window_size to the backend function --->
-    # Only use ring attention in self attention
-    if jkey.shape[2] > 10000 and USE_CUSTOM_ATTENTION:
+    if USE_CUSTOM_ATTENTION:
       res = _tpu_custom_attention(jquery, jkey, jvalue, env, scale=scale, is_causal=is_causal, window_size=window_size)
     else:
       res = _tpu_splash_attention(jquery, jkey, jvalue, env, scale=scale, is_causal=is_causal, window_size=window_size)
