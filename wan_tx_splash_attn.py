@@ -489,8 +489,8 @@ def _tpu_custom_attention(query, key, value, env, scale=None, is_causal=False, w
             splash_kernel = custom_splash_attention.make_splash_mha(
                 block_sizes=block_sizes, bkv_compute_in=BKVCOMPUTEINSIZE
             )
-            out = splash_kernel(q_3d_padded.astype(jnp.float32), k_3d_padded.astype(jnp.float32), v_3d_padded.astype(jnp.float32)).astype(q_3d_padded.dtype)
-            # out = splash_kernel(q_3d_padded, k_3d_padded, v_3d_padded)
+            # out = splash_kernel(q_3d_padded.astype(jnp.float32), k_3d_padded.astype(jnp.float32), v_3d_padded.astype(jnp.float32)).astype(q_3d_padded.dtype)
+            out = splash_kernel(q_3d_padded, k_3d_padded, v_3d_padded)
             # Remove padding if any
             out = jnp.swapaxes(out, 1, 2)
             return out[:, :q_orig_len, ...]
