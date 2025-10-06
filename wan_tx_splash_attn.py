@@ -76,7 +76,7 @@ BKVCOMPUTESIZE = 1024
 # Set to None to use the original full Causal Attention.
 WINDOW_SIZE = None
 
-PROFILE_OUT_PATH = "/dev/shm/tensorboard"
+PROFILE_OUT_PATH = "./tensorboard"
 
 USE_DP = True
 SP_NUM = 1
@@ -688,17 +688,18 @@ def main():
   rngs = nnx.Rngs(key)
   
   # Create JAX VAE with default parameters
-  wan_vae = AutoencoderKLWan(
-      rngs=rngs,
-      base_dim=96,
-      z_dim=16,
-      dim_mult=[1, 2, 4, 4],
-      num_res_blocks=2,
-      attn_scales=[],
-      temperal_downsample=[False, True, True],
-      mesh=mesh
-  )
-  
+  with mesh:
+    wan_vae = AutoencoderKLWan(
+        rngs=rngs,
+        base_dim=96,
+        z_dim=16,
+        dim_mult=[1, 2, 4, 4],
+        num_res_blocks=2,
+        attn_scales=[],
+        temperal_downsample=[False, True, True],
+        mesh=mesh
+    )
+    
   with mesh:
     # Create VAE cache
     vae_cache = AutoencoderKLWanCache(wan_vae)
@@ -900,22 +901,72 @@ def main():
     if args.profile:
       # profile set fewer step and output latent to skip VAE for now
       # output_type='latent' will skip VAE
-      jax.profiler.start_trace(PROFILE_OUT_PATH)
-      output = pipe(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        height=args.height,
-        width=args.width,
-        num_inference_steps=3,
-        num_frames=args.frames,
-        guidance_scale=5.0,
-        output_type="latent",
-        generator=generator,
-        use_dp=args.use_dp,
-      )
-      jax.effects_barrier()
-      jax.profiler.stop_trace()
-      print("profile done")
+      
+      # Create profiler output directory if it doesn't exist
+      import os
+      import time
+      try:
+        # Create process-specific profile directory for multi-worker setup
+        process_index = jax.process_index()
+        timestamp = int(time.time())
+        profile_path = f"{PROFILE_OUT_PATH}_worker_{process_index}_{timestamp}"
+        
+        os.makedirs(profile_path, exist_ok=True)
+        # Set permissions to ensure directory persists
+        os.chmod(profile_path, 0o755)
+        print(f"Process {process_index}: Created profiler output directory: {profile_path}")
+        
+        # Verify directory exists
+        if os.path.exists(profile_path):
+          print(f"Process {process_index}: Directory confirmed at {profile_path}")
+        else:
+          print(f"Process {process_index}: ERROR - Directory creation failed!")
+          return
+        
+        print(f"Process {process_index}: Starting JAX profiler...")
+        jax.profiler.start_trace(profile_path)
+        
+        print("Running profiling inference...")
+        output = pipe(
+          prompt=prompt,
+          negative_prompt=negative_prompt,
+          height=args.height,
+          width=args.width,
+          num_inference_steps=3,
+          num_frames=args.frames,
+          guidance_scale=5.0,
+          output_type="latent",
+          generator=generator,
+          use_dp=args.use_dp,
+        )
+        jax.effects_barrier()
+        
+        print(f"Process {process_index}: Stopping JAX profiler...")
+        jax.profiler.stop_trace()
+        
+        # Verify profile files were created
+        if os.path.exists(profile_path):
+          profile_files = os.listdir(profile_path)
+          print(f"Process {process_index}: Profile completed! {len(profile_files)} files written to {profile_path}")
+          if profile_files:
+            print(f"Process {process_index}: Profile files: {profile_files[:3]}...")  # Show first 3 files
+            
+            # Create a backup in home directory for safety
+            import shutil
+            backup_path = f"/home/{os.environ.get('USER', 'user')}/profile_backup_worker_{process_index}_{timestamp}"
+            try:
+              shutil.copytree(profile_path, backup_path)
+              print(f"Process {process_index}: Backup created at {backup_path}")
+            except Exception as backup_error:
+              print(f"Process {process_index}: Backup failed: {backup_error}")
+          else:
+            print(f"Process {process_index}: WARNING - No profile files found in directory!")
+        else:
+          print(f"Process {process_index}: ERROR - Profile directory disappeared!")
+        
+      except Exception as e:
+        print(f"Profiler error: {e}")
+        print(f"Profiler may have failed, but continuing execution...")
     
     # Benchmark loop
     for i in range(1):
