@@ -1,126 +1,79 @@
 Original readme moved to README_original.md
 
-# Recipe
+# Recipe for v7
 
-command also in `command.sh`
-
-1. Export the environment of GCP project
-* Fill the PROJECT_ID and TPU_NAME
+**TPU Init**
 ```
-### 1. export env of gcp ###
+export PROJECT_ID=tpu-prod-env-one-vm
+export ZONE=us-central1-c
+export TPU_NAME=elisatsai-vm
+export ACCELERATOR_TYPE=tpu7x-16
+export RUNTIME_VERSION=v2-alpha-tpu7-ubuntu2404
 
-export PROJECT_ID=<project_id>
-export TPU_NAME=<tpu_name>
-export ZONE=asia-northeast1-b
-export ACCELERATOR_TYPE=v6e-16
-export RUNTIME_VERSION=v2-alpha-tpuv6e
+gcloud alpha compute tpus tpu-vm create ${TPU_NAME} --zone=${ZONE} --accelerator-type=${ACCELERATOR_TYPE} --project=${PROJECT_ID} --version=${RUNTIME_VERSION}
 ```
 
-2. Create the v6e-16 tpu vms on GCP
+**1. Environment setup and install v7 specific libs**
 ```
-gcloud compute tpus tpu-vm create ${TPU_NAME}  \
-  --zone=${ZONE} \
-  --project=${PROJECT_ID} \
-  --accelerator-type=${ACCELERATOR_TYPE}  \
-  --version=${RUNTIME_VERSION} 
-```
-
-3. Prepare the python env on each tpu vms
-```
-### 3. prepare env on each host ###
-
-run()
-{
-  local command=$1
-  local worker=${2:-all}
-  gcloud compute tpus tpu-vm ssh --zone "${ZONE}" "${ACCOUNT}@${TPU_NAME}" --project "${PROJECT_ID}" --worker=${worker} --command="$command"
-}
-
-SETUP_COMMAND="\
-set -x && \
-sudo apt update && \
-sudo apt install -y python3.10-venv && \
-python -m venv venv && \
+setup_cmd="sudo apt update && \
+sudo apt install -y python3.12-venv && \
+python3 -m venv venv && \
 source venv/bin/activate && \
-git clone -b wan2-1-141s https://github.com/yuyanpeng-google/diffusers.git || true && \
+rm -rf diffusers && \
+git clone -b wan2-1-141s https://github.com/eltsai/diffusers.git || true && \
 cd diffusers && \
 git fetch origin && \
-git reset --hard origin/wan2-1-141s && \
+git reset --hard origin/wan2-1-141s
+
+pip install -r requirements.txt
 pip install -e . && \
 sh -ex setup-dep.sh && \
-true
-"
 
-run "${SETUP_COMMAND}"
+gcloud storage cp gs://elisatsai/wan_2.1_setup_fix/autoencoder_kl_wan.py ~/venv/lib/python3.12/site-packages/maxdiffusion/models/wan/autoencoder_kl_wan.py && \
+echo 'Patched maxdiffusion VAE library file.'"
+
+
+gcloud compute tpus tpu-vm ssh --zone $ZONE $TPU_NAME --project $PROJECT_ID --worker=all --command="$setup_cmd"
+```
+and 
+```
+install_cmd="source ~/venv/bin/activate && \
+WHEEL_NAME='libtpu-0.0.22.dev20250821+tpu7x-cp312-cp312-manylinux_2_31_x86_64.whl' && \
+\
+echo 'Installing JAX, JAXLIB, and libtpu dependencies (Step 1 of 3: Core Install)...' && \
+
+pip install -U --pre jax jaxlib libtpu requests \
+-i https://us-python.pkg.dev/ml-oss-artifacts-published/jax/simple/ \
+-f https://storage.googleapis.com/jax-releases/libtpu_releases.html && \
+\
+echo 'Installing Specific TPUv7x Driver (Step 2 of 3: Cleanup and Copy)...' && \
+
+pip uninstall -y libtpu || true && \
+gsutil cp gs://libtpu-tpu7x-releases/wheels/libtpu/\$WHEEL_NAME ~/\$WHEEL_NAME && \
+\
+echo 'Installing Specific TPUv7x Driver (Step 3 of 3: Final Install)...' && \
+
+pip install --upgrade --no-deps ~/\$WHEEL_NAME && \
+\
+echo 'Verification complete.' && \
+pip freeze | grep -E 'jax|jaxlib|libtpu'"
+
+gcloud compute tpus tpu-vm ssh --zone $ZONE $TPU_NAME --project $PROJECT_ID --worker=all --command="$install_cmd"
 ```
 
-4. Run wan2.1 pipeline to generate the videos
+**2. Run the model**
 ```
-### 4. run wan2.1 pipeline ###
-
-run()
-{
-  local command=$1
-  local worker=${2:-all}
-  gcloud compute tpus tpu-vm ssh --zone "${ZONE}" "${ACCOUNT}@${TPU_NAME}" --project "${PROJECT_ID}" --worker=${worker} --command="$command"
-}
-
-RUN_COMMAND="\
-set -x && \
-source ~/venv/bin/activate && \
+run_cmd="source ~/venv/bin/activate && \
 killall -9 python || true && \
 sleep 10 && \
 export JAX_COMPILATION_CACHE_DIR="/dev/shm/jax_cache" && \
 export JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES=-1 && \
 export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0 && \
 export JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES='xla_gpu_per_fusion_autotune_cache_dir' && \
+export TPU_NAME=\"$TPU_NAME\" && \
 export HF_HUB_CACHE=/dev/shm/hf_cache && \
-cd diffusers && \
-git fetch && git reset --hard origin/wan2-1-141s && \
-python wan_tx_splash_attn.py && \
-true
-"
-run "${RUN_COMMAND}"
+cd ~/diffusers && \
+python wan_tx_splash_attn.py --profile"
+
+gcloud compute tpus tpu-vm ssh --zone $ZONE $TPU_NAME --project $PROJECT_ID --worker=all --command="$run_cmd"
 ```
-
-5. See the results in stdout
-```
-...
-output video done. 20250901_071621.mp4
-...
-100%|██████████| 50/50 [02:12<00:00, 2.64s/it]
-Iteration 0 BKVCOMPUTESIZE=1024 BKVSIZE=2048, BQSIZE=3024: 140.745333s
-DONE
-```
-
-6. Use scp download generated videos
-```
-VIDEO_NAME=20250901_071621.mp4 # from the 5 stdout
-
-gcloud compute tpus tpu-vm scp --zone "${ZONE}" "${TPU_NAME}:~/diffusers/${VIDEO_NAME}" . --project "${PROJECT_ID}" --worker=0
-```
-
-
-# Install
-
-Install dependencies, setup virtual env first if required.
-
-```sh
-sh -ex setup-dep.sh
-```
-
-To run:
-
-```
-python wan_tx_splash_attn.py
-```
-
-### Result
-
-`python wan_tx_splash_attn.py`
-* v6e-16
-  * 100%|██████████| 50/50 [02:12<00:00, 2.64s/it]
-  * Iteration 0 BKVCOMPUTESIZE=1024 BKVSIZE=2048, BQSIZE=3024: 140.745333s
-  * DONE
-
-
