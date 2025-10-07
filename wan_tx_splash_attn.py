@@ -49,9 +49,9 @@ import argparse
 
 #### SETTINGS
 # 1.3B
-# MODEL_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+MODEL_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 # 14B
-MODEL_ID = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
+# MODEL_ID = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
 
 # 720p
 FLOW_SHIFT = 5.0 # 5.0 for 720P, 3.0 for 480P
