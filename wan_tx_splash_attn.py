@@ -49,9 +49,9 @@ import argparse
 
 #### SETTINGS
 # 1.3B
-MODEL_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+# MODEL_ID = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 # 14B
-# MODEL_ID = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
+MODEL_ID = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
 
 # 720p
 FLOW_SHIFT = 5.0 # 5.0 for 720P, 3.0 for 480P
@@ -652,7 +652,7 @@ def main():
 
   torch.set_default_dtype(torch.bfloat16)
   # Available models: Wan-AI/Wan2.1-T2V-14B-Diffusers, Wan-AI/Wan2.1-T2V-1.3B-Diffusers
-  #model_id = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+  # model_id = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
   # model_id = "Wan-AI/Wan2.1-T2V-14B-Diffusers"
   model_id = args.model_id
   
@@ -661,7 +661,13 @@ def main():
   env = torchax.default_env()
   # Create a 2D mesh for FSDP sharding
   
-  tp_dim, dp_dim, sp_dim = len(jax.devices()), 1, 1
+  # Automatically detect the total number of devices across all workers
+  total_devices = jax.device_count()
+  num_workers = jax.process_count()
+  local_devices = jax.local_device_count()
+  print(f"TPU topology detected: {num_workers} worker(s), {local_devices} cores/worker, {total_devices} total cores.")
+
+  tp_dim, dp_dim, sp_dim = total_devices, 1, 1
   if args.use_dp:
     # tp_dim > 8, which is v6e-16, could not divide head_dim=40, need use dp
     print(f"{args.use_dp=}")
