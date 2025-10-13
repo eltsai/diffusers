@@ -649,6 +649,10 @@ def main():
   jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
   jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
   jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
+  
+  print(args)
+  print('=========================')
+  num_global_devices = jax.device_count()
 
   torch.set_default_dtype(torch.bfloat16)
   # Available models: Wan-AI/Wan2.1-T2V-14B-Diffusers, Wan-AI/Wan2.1-T2V-1.3B-Diffusers
@@ -868,10 +872,13 @@ def main():
           print(f"{m} (JAX VAE) - size calculation not implemented")
 
 
-  prompt = "A cat and a dog baking a cake together in a kitchen. The cat is carefully measuring flour, while the dog is stirring the batter with a wooden spoon. The kitchen is cozy, with sunlight streaming through the window."
+  prompt_str = "A cat and a dog baking a cake together in a kitchen. The cat is carefully measuring flour, while the dog is stirring the batter with a wooden spoon. The kitchen is cozy, with sunlight streaming through the window."
   # prompt = "Drone view of waves crashing against the rugged cliffs along Big Sur's garay point beach.The crashing blue waters create white-tipped waves,while the golden light of the setting sun illuminates the rocky shore. A small island with a lighthouse sits in the distance, and greenshrubbery covers the cliffs edge. The steep drop from the road down to the beach is adramatic feat, with the cliff's edges jutting out over the sea. This is a view that captures the raw beauty of the coast and the rugged landscape of the Pacific Coast Highway."
-  negative_prompt = "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards"
+  negative_prompt_str = "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards"
 
+  prompt = [prompt_str] * args.batch_size
+  negative_prompt = [negative_prompt_str] * args.batch_size
+  
   generator = torch.Generator()
   generator.manual_seed(42)
   with mesh, nn_partitioning.axis_rules(LOGICAL_AXIS_RULES):
@@ -888,21 +895,22 @@ def main():
         'use_dp': args.use_dp,
     }
     
-    output = pipe(**pipe_kwargs).frames[0]
+    outputs = pipe(**pipe_kwargs).frames
     #print("output type:", type(output), "output shape:", output.shape)
     #if hasattr(output, 'shape'):
     #    print("output shape:", output.shape)
     #elif isinstance(output, (list, tuple)):
     #    for i, v in enumerate(output):
     #        print(f"output[{i}] type: {type(v)}, shape: {getattr(v, 'shape', None)}")
-    output = prepare_video_for_export(output)
-    if isinstance(output, np.ndarray) and output.ndim == 4 and output.shape[-2] == 3:
-        output = output.transpose(3, 0, 1, 2)
-    current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_name = f"{current_datetime}.mp4"
-    export_to_video(output, file_name, fps=args.fps)
-    print(f"output video done. {file_name}")
-    jax.effects_barrier()
+    for i, output in enumerate(outputs):
+      output = prepare_video_for_export(output)
+      if isinstance(output, np.ndarray) and output.ndim == 4 and output.shape[-2] == 3:
+          output = output.transpose(3, 0, 1, 2)
+      current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+      file_name = f"{current_datetime}_{i}.mp4"
+      export_to_video(output, file_name, fps=args.fps)
+      print(f"output video done. {file_name}")
+      jax.effects_barrier()
     
     if args.profile:
       # profile set fewer step and output latent to skip VAE for now
@@ -915,7 +923,7 @@ def main():
         # Create process-specific profile directory for multi-worker setup
         process_index = jax.process_index()
         timestamp = int(time.time())
-        profile_path = f"{PROFILE_OUT_PATH}_worker_{process_index}_{timestamp}"
+        profile_path = f"{PROFILE_OUT_PATH}_batchsize={args.batch_size}_device={num_global_devices}_worker_{process_index}_{timestamp}"
         
         os.makedirs(profile_path, exist_ok=True)
         # Set permissions to ensure directory persists
@@ -954,21 +962,8 @@ def main():
         if os.path.exists(profile_path):
           profile_files = os.listdir(profile_path)
           print(f"Process {process_index}: Profile completed! {len(profile_files)} files written to {profile_path}")
-          if profile_files:
-            print(f"Process {process_index}: Profile files: {profile_files[:3]}...")  # Show first 3 files
-            
-            # Create a backup in home directory for safety
-            import shutil
-            backup_path = f"/home/{os.environ.get('USER', 'user')}/profile_backup_worker_{process_index}_{timestamp}"
-            try:
-              shutil.copytree(profile_path, backup_path)
-              print(f"Process {process_index}: Backup created at {backup_path}")
-            except Exception as backup_error:
-              print(f"Process {process_index}: Backup failed: {backup_error}")
-          else:
-            print(f"Process {process_index}: WARNING - No profile files found in directory!")
         else:
-          print(f"Process {process_index}: ERROR - Profile directory disappeared!")
+          print(f"Process {process_index}: ERROR - Profile directory missing!")
         
       except Exception as e:
         print(f"Profiler error: {e}")
@@ -1004,11 +999,11 @@ def parse_args():
     parser.add_argument("--profile", action="store_true", default=False, help="Add profiler")
     parser.add_argument("--use_fsdp", type=bool, default=USE_FSDP, help="Use FSDP")
     parser.add_argument("--use_k_smooth", type=bool, default=USE_K_SMOOTH, help="Use K smooth")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
     return parser.parse_args()
 
 if __name__ == '__main__':
   args = parse_args()
-  print(args)
   BQSIZE = args.bqsize
   BKVSIZE = args.bkvsize
   BKVCOMPUTESIZE = args.bkvcomputesize

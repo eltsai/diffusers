@@ -561,7 +561,8 @@ class WanPipeline(DiffusionPipeline, WanLoraLoaderMixin):
                 if use_dp:
                     self._current_timestep = t
                     latent_model_input = torch.cat([latents, latents]).to(transformer_dtype)
-                    timestep = t.expand(latents.shape[0])
+                    # timestep = t.expand(latents.shape[0])
+                    timestep = t.expand(latents.shape[0] * 2)
                     encoder_hidden_state = torch.cat([prompt_embeds, negative_prompt_embeds])
 
                     # 根据 text_encoder 设备决定是否类型转换
