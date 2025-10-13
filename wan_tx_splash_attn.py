@@ -238,7 +238,7 @@ register_pytree_node(
   unflatten_model_output)
 
 def make_key(name):
-  return re.sub(r'\.\d+\.', '.*.', name)
+  return re.sub(r'\.\d+\.', r'.*.', name)
 
   
 def _get_weights_of_linear(module):
