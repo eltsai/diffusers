@@ -725,7 +725,15 @@ def main():
     wan_vae = nnx.merge(graphdef, params)
 
     # Shard vae
-    p_create_sharded_logical_model = functools.partial(create_sharded_logical_model, logical_axis_rules=LOGICAL_AXIS_RULES)
+    if not args.no_vae_shard:
+      p_create_sharded_logical_model = functools.partial(create_sharded_logical_model, logical_axis_rules=LOGICAL_AXIS_RULES)
+    else:
+      print("Skipping VAE shard")
+      VAE_LOGICAL_AXIS_RULES = (
+                    ('conv_out', ()), # Changed from ('axis','dp','sp') to ()
+                    ('conv_in', ())   # Changed from ('axis','dp','sp') to ()
+                  )
+      p_create_sharded_logical_model = functools.partial(create_sharded_logical_model, logical_axis_rules=VAE_LOGICAL_AXIS_RULES)
     wan_vae = p_create_sharded_logical_model(model=wan_vae)
   
   
@@ -872,10 +880,14 @@ def main():
           print(f"{m} (JAX VAE) - size calculation not implemented")
 
 
-  prompt_str = "A cat and a dog baking a cake together in a kitchen. The cat is carefully measuring flour, while the dog is stirring the batter with a wooden spoon. The kitchen is cozy, with sunlight streaming through the window."
+  prompt_str = "" # "A cat and a dog baking a cake together in a kitchen. The cat is carefully measuring flour, while the dog is stirring the batter with a wooden spoon. The kitchen is cozy, with sunlight streaming through the window."
   # prompt = "Drone view of waves crashing against the rugged cliffs along Big Sur's garay point beach.The crashing blue waters create white-tipped waves,while the golden light of the setting sun illuminates the rocky shore. A small island with a lighthouse sits in the distance, and greenshrubbery covers the cliffs edge. The steep drop from the road down to the beach is adramatic feat, with the cliff's edges jutting out over the sea. This is a view that captures the raw beauty of the coast and the rugged landscape of the Pacific Coast Highway."
-  negative_prompt_str = "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards"
+  negative_prompt_str = "" #"Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards"
 
+  
+  print(f'Positive prompt: "{prompt_str}"')
+  print(f'Negative prompt: "{negative_prompt_str}"')
+  
   prompt = [prompt_str] * args.batch_size
   negative_prompt = [negative_prompt_str] * args.batch_size
   
@@ -1004,6 +1016,7 @@ def parse_args():
     parser.add_argument("--use_k_smooth", type=bool, default=USE_K_SMOOTH, help="Use K smooth")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
     parser.add_argument("--tp_dim", type=int, default=8, help="Tensor parallel dimension")
+    parser.add_argument("--no_vae_shard", action="store_true", default=False, help="Skip VAE shard")
     return parser.parse_args()
 
 if __name__ == '__main__':
