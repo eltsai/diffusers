@@ -238,7 +238,7 @@ register_pytree_node(
   unflatten_model_output)
 
 def make_key(name):
-  return re.sub('\.\d+\.', '.*.', name)
+  return re.sub(r'\.\d+\.', '.*.', name)
 
   
 def _get_weights_of_linear(module):
@@ -675,8 +675,8 @@ def main():
   if args.use_dp:
     # tp_dim > 8, which is v6e-16, could not divide head_dim=40, need use dp
     print(f"{args.use_dp=}")
-    tp_dim //= 2
-    dp_dim = 2
+    tp_dim = args.tp_dim
+    dp_dim = total_devices // tp_dim
   
   if args.sp_num > 1:
     print(f"{args.sp_num=}")
@@ -896,12 +896,16 @@ def main():
     }
     
     outputs = pipe(**pipe_kwargs).frames
+    # Wait for the entire batched inference to complete before post-processing.
+    jax.effects_barrier()
+
     #print("output type:", type(output), "output shape:", output.shape)
     #if hasattr(output, 'shape'):
     #    print("output shape:", output.shape)
     #elif isinstance(output, (list, tuple)):
     #    for i, v in enumerate(output):
     #        print(f"output[{i}] type: {type(v)}, shape: {getattr(v, 'shape', None)}")
+
     for i, output in enumerate(outputs):
       output = prepare_video_for_export(output)
       if isinstance(output, np.ndarray) and output.ndim == 4 and output.shape[-2] == 3:
@@ -909,8 +913,7 @@ def main():
       current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
       file_name = f"{current_datetime}_{i}.mp4"
       export_to_video(output, file_name, fps=args.fps)
-      print(f"output video done. {file_name}")
-      jax.effects_barrier()
+      print(f"Output video {i} saved: {file_name}")
     
     if args.profile:
       # profile set fewer step and output latent to skip VAE for now
@@ -1000,6 +1003,7 @@ def parse_args():
     parser.add_argument("--use_fsdp", type=bool, default=USE_FSDP, help="Use FSDP")
     parser.add_argument("--use_k_smooth", type=bool, default=USE_K_SMOOTH, help="Use K smooth")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
+    parser.add_argument("--tp_dim", type=int, default=8, help="Tensor parallel dimension")
     return parser.parse_args()
 
 if __name__ == '__main__':
