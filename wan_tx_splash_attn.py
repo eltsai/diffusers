@@ -726,9 +726,10 @@ def main():
 
     # Shard vae
     if not args.no_vae_shard:
+      print("> Sharding VAE...")
       p_create_sharded_logical_model = functools.partial(create_sharded_logical_model, logical_axis_rules=LOGICAL_AXIS_RULES)
     else:
-      print("Skipping VAE shard")
+      print("> Skipping VAE shard...")
       VAE_LOGICAL_AXIS_RULES = (
                     ('conv_out', ()), # Changed from ('axis','dp','sp') to ()
                     ('conv_in', ())   # Changed from ('axis','dp','sp') to ()
